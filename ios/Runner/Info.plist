@@ -32,6 +32,14 @@
 		<string>Enable speech recognition</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>Enable microphone permissions</string>
+		<key>NSBonjourServices</key>
+		<array>
+			<string>_mp-connection._tcp</string>
+		</array>
+		<key>UIRequiresPersistentWiFi</key>
+		<true/>
+		<key>NSBluetoothAlwaysUsageDescription</key>
+		<string>Allow device to discover nearby devices</string>
 		<key>UISupportedInterfaceOrientations</key>
 		<array>
 			<string>UIInterfaceOrientationPortrait</string>

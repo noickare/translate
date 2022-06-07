@@ -1,68 +1,129 @@
-import 'package:avatar_glow/avatar_glow.dart';
-import 'package:clipboard/clipboard.dart';
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_nearby_connections/flutter_nearby_connections.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
-import '../api/speech_to_text.dart';
-import '../main.dart';
+enum DeviceType { advertiser, browser }
 
-class HomePage extends StatefulWidget {
-  const HomePage({Key? key}) : super(key: key);
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({Key? key}) : super(key: key);
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomePageState extends State<HomePage> {
-  String text = 'Press the button and start speaking';
-  bool isListening = false;
+class _HomeScreenState extends State<HomeScreen> {
+  List<Device> devices = [];
+  List<Device> connectedDevices = [];
+  DeviceType deviceType = DeviceType.advertiser;
+  late NearbyService nearbyService;
+  late StreamSubscription subscription;
+  late StreamSubscription receivedDataSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    init();
+  }
+
+  @override
+  void dispose() {
+    subscription.cancel();
+    receivedDataSubscription.cancel();
+    nearbyService.stopBrowsingForPeers();
+    nearbyService.stopAdvertisingPeer();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    print('===========devices=================');
+    devices.map((dev) => print(dev.toString()));
+    print('===========connectedDevices=================');
+    connectedDevices.map((dev) => print(dev.toString()));
     return Scaffold(
       appBar: AppBar(
-        title: const Text(MyApp.title),
-        centerTitle: true,
-        actions: [
-          Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.content_copy),
-              onPressed: () {
-                FlutterClipboard.copy(text);
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Copied to clipboard")));
-              },
-            ),
-          ),
-        ],
+        title: const Text('Home'),
       ),
-      body: SingleChildScrollView(
-        reverse: true,
-        padding: const EdgeInsets.all(30).copyWith(bottom: 150),
-        child: Text(text),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: AvatarGlow(
-        animate: isListening,
-        endRadius: 75,
-        glowColor: Theme.of(context).primaryColor,
-        child: FloatingActionButton(
-          onPressed: toggleRecording,
-          child: Icon(isListening ? Icons.mic : Icons.mic_none, size: 36),
+      body: Center(
+        child: ElevatedButton(
+          onPressed: () {
+            setState(() {
+              deviceType = DeviceType.browser;
+            });
+          },
+          child: const Text('Search Devices'),
         ),
       ),
     );
   }
 
-  Future toggleRecording() => SpeechApi.toggleRecording(
-        onResult: (text) => setState(() => this.text = text),
-        onListening: (isListening) {
-          setState(() => this.isListening = isListening);
-
-          if (!isListening) {
-            // Future.delayed(Duration(seconds: 1), () {
-            //   Utils.scanText(text);
-            // });
+  void init() async {
+    nearbyService = NearbyService();
+    String devInfo = '';
+    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
+      devInfo = androidInfo.model as String;
+    }
+    if (Platform.isIOS) {
+      IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
+      devInfo = iosInfo.localizedModel as String;
+    }
+    await nearbyService.init(
+        serviceType: 'mpconn',
+        deviceName: devInfo,
+        strategy: Strategy.P2P_CLUSTER,
+        callback: (isRunning) async {
+          if (isRunning) {
+            if (deviceType == DeviceType.browser) {
+              await nearbyService.stopBrowsingForPeers();
+              await Future.delayed(const Duration(microseconds: 200));
+              await nearbyService.startBrowsingForPeers();
+            } else {
+              await nearbyService.stopAdvertisingPeer();
+              await nearbyService.stopBrowsingForPeers();
+              await Future.delayed(const Duration(microseconds: 200));
+              await nearbyService.startAdvertisingPeer();
+              await nearbyService.startBrowsingForPeers();
+            }
           }
-        },
-      );
+        });
+    subscription =
+        nearbyService.stateChangedSubscription(callback: (devicesList) {
+      for (var element in devicesList) {
+        print(
+            " deviceId: ${element.deviceId} | deviceName: ${element.deviceName} | state: ${element.state}");
+
+        if (Platform.isAndroid) {
+          if (element.state == SessionState.connected) {
+            nearbyService.stopBrowsingForPeers();
+          } else {
+            nearbyService.startBrowsingForPeers();
+          }
+        }
+      }
+
+      setState(() {
+        devices.clear();
+        devices.addAll(devicesList);
+        connectedDevices.clear();
+        connectedDevices.addAll(devicesList
+            .where((d) => d.state == SessionState.connected)
+            .toList());
+      });
+    });
+
+    // receivedDataSubscription =
+    //     nearbyService.dataReceivedSubscription(callback: (data) {
+    //   print("dataReceivedSubscription: ${jsonEncode(data)}");
+    //   showToast(jsonEncode(data),
+    //       context: context,
+    //       axis: Axis.horizontal,
+    //       alignment: Alignment.center,
+    //       position: StyledToastPosition.bottom);
+    // });
+  }
 }
